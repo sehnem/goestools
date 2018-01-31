@@ -4,6 +4,7 @@ from botocore import UNSIGNED
 from botocore.client import Config
 import glob
 import os
+from .filehandler import list_files
 
 regions = {'F': 'Fulldisk',
            'C': 'CONUS',
@@ -19,5 +20,10 @@ products = {'Rad': 'radiances',
 
 class goes():
 
-    def __init__(self, path, local=True):
-        files = glob('path/OR_ABI*G*.nc')
+    def __init__(self, path, date,bands=None, local=False):
+        files = list_files(path, bands, date)
+        # verifica diretorio local e filtra conforme parâmetros
+        # se não é local=True verifica diretorio remoto pela data e bandas
+        # se existe data mais proxima no remoto baixa ela
+        # revê diretório local para carregar o arquivo
+        # chama o reader
