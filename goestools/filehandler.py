@@ -14,7 +14,7 @@ def file_to_dict(file_name):
 
     name_data = file_name[:-3].split('_')
     product = name_data[1].split('-')
-
+    goes_dict['filename'] = file_name
     goes_dict['goes_satellite'] = int(name_data[2][1:])
     goes_dict['start'] = datetime.strptime(name_data[3][1:], fmt)
     goes_dict['end'] = datetime.strptime(name_data[4][1:], fmt)

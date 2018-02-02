@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def _vis_calibrate(self, data):
     """Calibrate visible channels to reflectance."""
     solar_irradiance = self.nc['esun'][()]

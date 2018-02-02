@@ -6,6 +6,7 @@ import glob
 import os
 from .filehandler import list_files
 from .download import get_goes
+from .reader import abi
 
 regions = {'F': 'Fulldisk',
            'C': 'CONUS',
@@ -34,7 +35,6 @@ abi_bands = {1:  {'wl_range': (0.45, 0.49),   'wl': 0.47,  'res': 1},
              15: {'wl_range': (11.8, 12.8),   'wl': 12.3,  'res': 2},
              16: {'wl_range': (13.0, 13.6),   'wl': 13.3,  'res': 2}}
 
-# Goes class to process single time data, multiband capable.
 
 class goes():
 
@@ -42,8 +42,9 @@ class goes():
         if local is False:
             get_goes(goes, product, region, start=date, end=None, bands=None, path=path)
         files = list_files(path, bands, date)
+        data = []
         for file in files:
-            pass
+            data.append(abi(file))
 # criar dicionário com as bandas
 #carregar de cada banda que existe neste dicionário
 

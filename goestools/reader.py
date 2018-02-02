@@ -1,61 +1,29 @@
-import logging
-import os
-from datetime import datetime
-
 from netCDF4 import Dataset
 import numpy as np
 
 
+class abi():
 
-class NC_ABI_L1B(BaseFileHandler):
+    def __init__(self, file):
+        self.nc = Dataset(file['filename'], 'r')
+        self.var = file['product']
+        self.band = file['band']
+        self.goes = file['goes_satellite']
+        self.start = file['start']
+        self.end = file['end']
+        self.nlines, self.ncols = self.nc[self.var].shape
 
-    def __init__(self, filename, filename_info, filetype_info):
-        super(NC_ABI_L1B, self).__init__(filename, filename_info,
-                                         filetype_info)
-        self.nc = Dataset(filename, 'r')
+        variable = self.nc[self.var]
+        radiances = (np.ma.masked_equal(variable, variable._FillValue, copy=False) * variable.scale_factor + variable.add_offset)
 
-        platform_shortname = filename_info['platform_shortname']
-        self.platform_name = PLATFORM_NAMES.get(platform_shortname)
-        self.sensor = 'abi'
-        self.nlines, self.ncols = self.nc["Rad"].shape
+        data = []
+        mask = []
+        data[:] = radiances
+        mask[:] = np.ma.getmask(radiances)
+        info = {'satellite_latitude': self.nc['nominal_satellite_subpoint_lat'][()],
+                'satellite_longitude': self.nc['nominal_satellite_subpoint_lon'][()],
+                'satellite_altitude': self.nc['nominal_satellite_height'][()]}
 
-    def get_shape(self, key, info):
-        """Get the shape of the data."""
-        return self.nlines, self.ncols
-
-    def get_dataset(self, key, info, out=None,
-                    xslice=slice(None), yslice=slice(None)):
-        """Load a dataset."""
-        logger.debug('Reading in get_dataset %s.', key.name)
-
-        variable = self.nc["Rad"]
-
-        radiances = (np.ma.masked_equal(variable[yslice, xslice],
-                                        variable._FillValue, copy=False) *
-                     variable.scale_factor +
-                     variable.add_offset)
-        # units = variable.attrs['units']
-        units = self.calibrate(radiances)
-
-        # convert to satpy standard units
-        if units == '1':
-            radiances.data[:] *= 100.
-            units = '%'
-
-        out.data[:] = radiances
-        out.mask[:] = np.ma.getmask(radiances)
-        out.info.update({'units': units,
-                         'platform_name': self.platform_name,
-                         'sensor': self.sensor,
-                         'satellite_latitude': self.nc['nominal_satellite_subpoint_lat'][()],
-                         'satellite_longitude': self.nc['nominal_satellite_subpoint_lon'][()],
-                         'satellite_altitude': self.nc['nominal_satellite_height'][()]})
-        out.info.update(key.to_dict())
-
-        return out
-
-    def get_area_def(self, key):
-        """Get the area definition of the data at hand."""
         projection = self.nc["goes_imager_projection"]
         a = projection.semi_major_axis
         h = projection.perspective_point_height
@@ -84,60 +52,7 @@ class NC_ABI_L1B(BaseFileHandler):
                      'h': h,
                      'proj': 'geos',
                      'units': 'm',
-                     'sweep': sweep_axis}
-
-# TODO: create dict
-        area = geometry.AreaDefinition(
-            'some_area_name',
-            "On-the-fly area",
-            'geosabii',
-            proj_dict,
-            self.ncols,
-            self.nlines,
-            area_extent)
-
-        return area
-
-    def _vis_calibrate(self, data):
-        """Calibrate visible channels to reflectance."""
-        solar_irradiance = self.nc['esun'][()]
-        esd = self.nc["earth_sun_distance_anomaly_in_AU"][()]
-
-        factor = np.pi * esd * esd / solar_irradiance
-        data.data[:] *= factor
-
-        return '1'
-
-    def _ir_calibrate(self, data):
-        """Calibrate IR channels to BT."""
-        fk1 = self.nc["planck_fk1"][()]
-        fk2 = self.nc["planck_fk2"][()]
-        bc1 = self.nc["planck_bc1"][()]
-        bc2 = self.nc["planck_bc2"][()]
-
-        np.divide(fk1, data, out=data.data)
-        data.data[:] += 1
-        np.log(data, out=data.data)
-        np.divide(fk2, data, out=data.data)
-        data.data[:] -= bc1
-        data.data[:] /= bc2
-
-        return 'K'
-
-    def calibrate(self, data):
-        """Calibrate the data."""
-        logger.debug("Calibrate")
-
-        ch = self.nc["band_id"][()]
-        if ch < 7:
-            return self._vis_calibrate(data)
-        else:
-            return self._ir_calibrate(data)
-
-    @property
-    def start_time(self):
-        return datetime.strptime(self.nc.time_coverage_start, '%Y-%m-%dT%H:%M:%S.%fZ')
-
-    @property
-    def end_time(self):
-        return datetime.strptime(self.nc.time_coverage_end, '%Y-%m-%dT%H:%M:%S.%fZ')
+                     'sweep': sweep_axis,
+                     'lines': self.nlines,
+                     'cols': self.ncols,
+                     'extent': area_extent}
