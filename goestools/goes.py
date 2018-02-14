@@ -21,7 +21,7 @@ products = {'Rad': 'Radiances',
 
 class goes():
 
-    def __init__(self, goes, product, region, date, bands=None, path='./', local=False):
+    def __init__(self, goes, product, region, date, bands=None, path='./', extent=None, local=False):
         if local is False:
             get_goes(goes, product, region, start=date, end=None, bands=bands, path=path)
         if type(date) is str:
@@ -29,7 +29,9 @@ class goes():
         self.files = list_files(path, bands, date)
         self.abi = []
         for file in self.files:
-            self.abi.append(abi(file))
+            self.abi.append(abi(file, extent))
+
+
 # criar dicionário com as bandas
 #carregar de cada banda que existe neste dicionário
 

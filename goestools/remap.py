@@ -2,12 +2,21 @@ from netCDF4 import Dataset
 import numpy as np
 from osgeo import osr
 from osgeo import gdal
+from osgeo import gdal_array
 import time as t
+
+def area_string(dict):
+    area = ''
+    for value in list(dict.keys()):
+        param = '+' + value + '=' + str(dict[value]) + ' '
+        area += param
+    area += '+no_defs'
+    return area
+
+# TODO: Reescrever metadados da nova projeção
 
 # Define KM_PER_DEGREE
 KM_PER_DEGREE = 111.32
-
-var = 'CMI'
 
 # nc.variables['goes_imager_projection']
 
@@ -16,47 +25,31 @@ var = 'CMI'
 # GOES16_EXTENT = [-5434546.127484, 5434546.127484, -5434241.773362, 5434241.773362]
 
 
-def exportImage(image, path):
-    driver = gdal.GetDriverByName('netCDF')
-    return driver.CreateCopy(path, image, 0)
-
-
 def getGeoT(extent, nlines, ncols):
     # Compute resolution based on data dimension
-    resx = (extent[1] - extent[0]) / ncols
-    resy = (extent[3] - extent[2]) / nlines
+    resx = (extent[2] - extent[0]) / ncols
+    resy = (extent[3] - extent[1]) / nlines
     return [extent[0], resx, 0, extent[3], 0, -resy]
 
 
-def remap(self):
+def remap(self, extent):
 
-    extent = self.area['extent']
-
-    area_def = '+proj={} +h={} +a={} +b={} +lat_0=0.0 +lon_0={}+sweep={}' \
-               '+no_defs'.format(self.area['proj'], self.area['h'], self.area['a'],
-                                 self.area['b'], self.area['lon_0'], self.area['sweep'])
-
-
+    area_def = area_string(self.area)
     sourcePrj = osr.SpatialReference()
     sourcePrj.ImportFromProj4(area_def)
 
     targetPrj = osr.SpatialReference()
     targetPrj.ImportFromProj4('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
 
-    # Build connection info based on given driver name
-    connectionInfo = 'NETCDF:\"' + self.filename + '\":' + self.product
-
-
-    # Open NetCDF file (GOES-16 data)
-    raw = gdal.Open(connectionInfo, gdal.GA_ReadOnly)
+    raw = gdal_array.OpenArray(self.data)
 
     # Setup projection and geo-transformation
     raw.SetProjection(sourcePrj.ExportToWkt())
-    raw.SetGeoTransform(getGeoT(extent, raw.RasterYSize, raw.RasterXSize))
+    raw.SetGeoTransform(getGeoT(self.extent, raw.RasterYSize, raw.RasterXSize))
 
     # Compute grid dimension
-    sizex = int((extent[1] - extent[0]) * KM_PER_DEGREE/ self.resolution)
-    sizey = int((extent[3] - extent[2]) * KM_PER_DEGREE/ self.resolution)
+    sizex = int((extent[2] - extent[0]) * KM_PER_DEGREE/2) * int(2/self.resolution)
+    sizey = int((extent[3] - extent[1]) * KM_PER_DEGREE/2) * int(2/self.resolution)
 
     # Get memory driver
     memDriver = gdal.GetDriverByName('MEM')
@@ -71,7 +64,8 @@ def remap(self):
     gdal.ReprojectImage(raw, grid, sourcePrj.ExportToWkt(), targetPrj.ExportToWkt(), gdal.GRA_NearestNeighbour,
                         options=['NUM_THREADS=ALL_CPUS'])
 
-    raw = None
+    # Close file
+    del raw
 
     # Read grid data
     array = grid.ReadAsArray()
@@ -79,10 +73,10 @@ def remap(self):
     # Mask fill values (i.e. invalid values)
     np.ma.masked_where(array, array == -1, False)
 
-    # Apply scale and offset
-    array = array * self.scale + self.offset
 
     grid.GetRasterBand(1).SetNoDataValue(-1)
     grid.GetRasterBand(1).WriteArray(array)
 
-    return grid
+    array = np.ma.masked_equal(grid.ReadAsArray(), array == -1, False)
+
+    self.data = array

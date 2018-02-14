@@ -1,9 +1,6 @@
 from netCDF4 import Dataset
 import numpy as np
-import rasterio
-from rasterio import transform
-from rasterio import Affine as A
-from rasterio.warp import reproject, Resampling
+from remap import remap
 
 # https://www.goes-r.gov/spacesegment/images/ABI-tech-summary.png
 abi_bands = {1:  {'wl_range': (0.45, 0.49),   'wl': 0.47,  'res': 1},
@@ -26,7 +23,7 @@ abi_bands = {1:  {'wl_range': (0.45, 0.49),   'wl': 0.47,  'res': 1},
 
 class abi(dict):
 
-    def __init__(self, file):
+    def __init__(self, file, extent=None):
         super(abi, self).__init__()
         self.__dict__ = self
 
@@ -40,8 +37,7 @@ class abi(dict):
         self.wl_range = abi_bands[self.band]['wl_range']
         self.wl = abi_bands[self.band]['wl']
         self.resolution = abi_bands[self.band]['res']
-        self.scale = nc.variables[self.product].scale_factor
-        self.offset = nc.variables[self.product].add_offset
+        self.lines, self.cols = nc[self.product].shape
 
         if self.band < 7:
             self.solar_irradiance = nc['esun'][()]
@@ -52,13 +48,7 @@ class abi(dict):
             self.bc1 = nc["planck_bc1"][()]
             self.bc2 = nc["planck_bc2"][()]
 
-        self.lines, self.cols = nc[self.product].shape
 
-        variable = nc[self.product]
-        self.data = (np.ma.masked_equal(variable, variable._FillValue, copy=False) * variable.scale_factor + variable.add_offset)
-        #
-        self.data = self.data.filled(fill_value=np.nan)
-        #
         self.info = {'satellite_latitude': nc['nominal_satellite_subpoint_lat'][()],
                      'satellite_longitude': nc['nominal_satellite_subpoint_lon'][()],
                      'satellite_altitude': nc['nominal_satellite_height'][()]}
@@ -70,13 +60,17 @@ class abi(dict):
         lon_0 = projection.longitude_of_projection_origin
         sweep_axis = projection.sweep_angle_axis
 
-        # need 64-bit floats otherwise small shift
+
+        variable = nc[self.product]
+        self.data = (np.ma.masked_equal(variable, variable._FillValue, copy=False) *
+                     variable.scale_factor + variable.add_offset)
+
+
         scale_x = np.float64(nc['x'].scale_factor)
         scale_y = np.float64(nc['y'].scale_factor)
         offset_x = np.float64(nc['x'].add_offset)
         offset_y = np.float64(nc['y'].add_offset)
 
-        # x and y extents in m
         x_l = h * (nc['x'][0] * scale_x + offset_x)
         x_r = h * (nc['x'][-1] * scale_x + offset_x)
         y_l = h * (nc['y'][-1] * scale_y + offset_y)
@@ -85,14 +79,17 @@ class abi(dict):
         y_half = (y_u - y_l) / (self.lines - 1) / 2.
         self.extent = (x_l - x_half, x_r + x_half, y_l - y_half, y_u + y_half)
 
-        self.area = {'a': float(a),
+        self.area = {'proj': 'geos',
+                     'a': float(a),
                      'b': float(b),
                      'lat_0': 0.0,
                      'lon_0': float(lon_0),
                      'h': h,
-                     'proj': 'geos',
                      'units': 'm',
                      'sweep': sweep_axis}
+
+        if extent is not None:
+            self.reproj(extent=extent)
 
     def calibrate(self):
 
@@ -108,6 +105,10 @@ class abi(dict):
             self.data[:] -= self.bc1
             self.data[:] /= self.bc2
 
+
+    def reproj(self, extent):
+        remap(self, extent)
+
 # (-5434546.127484628, -5434241.773362986, 5434546.127484628, 5434241.773362986)
 
     #dest_crc = {'proj':'longlat', 'ellps': 'WGS84', 'datum': 'WGS84'}
@@ -116,6 +117,12 @@ class abi(dict):
     # Compute grid dimension
 
 
+
+
+
+
+
+'''
     def remap(self, dst_crs = {'proj':'longlat', 'ellps': 'WGS84', 'datum': 'WGS84'}, extent=[-70.0, -40.0, -20.0, 10.0]):
         with rasterio.Env():
             KM_PER_DEGREE = 111.32
@@ -146,3 +153,4 @@ class abi(dict):
                 num_threads=16)
 
             self.data = destination
+'''
