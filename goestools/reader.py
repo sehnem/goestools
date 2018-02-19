@@ -1,5 +1,6 @@
 from netCDF4 import Dataset
 import numpy as np
+from copy import deepcopy
 from remap import remap
 
 # https://www.goes-r.gov/spacesegment/images/ABI-tech-summary.png
@@ -29,7 +30,10 @@ class abi(dict):
 
         nc = Dataset(file['filename'], 'r')
         self.filename = file['filename']
-        self.product = file['product']
+        if file['product']=='CMIP':
+            self.product = 'CMI'
+        else:
+            self.product = file['product']
         self.band = file['band']
         self.goes = file['goes_satellite']
         self.start = file['start']
@@ -37,21 +41,21 @@ class abi(dict):
         self.wl_range = abi_bands[self.band]['wl_range']
         self.wl = abi_bands[self.band]['wl']
         self.resolution = abi_bands[self.band]['res']
-        self.lines, self.cols = nc[self.product].shape
+        self.rows, self.cols = nc[self.product].shape
 
         if self.band < 7:
-            self.solar_irradiance = nc['esun'][()]
-            self.esd = nc["earth_sun_distance_anomaly_in_AU"][()]
+            self.solar_irradiance = nc['esun'][0]
+            self.esd = nc["earth_sun_distance_anomaly_in_AU"][0]
         else:
-            self.fk1 = nc["planck_fk1"][()]
-            self.fk2 = nc["planck_fk2"][()]
-            self.bc1 = nc["planck_bc1"][()]
-            self.bc2 = nc["planck_bc2"][()]
+            self.fk1 = nc["planck_fk1"][0]
+            self.fk2 = nc["planck_fk2"][0]
+            self.bc1 = nc["planck_bc1"][0]
+            self.bc2 = nc["planck_bc2"][0]
 
 
-        self.info = {'satellite_latitude': nc['nominal_satellite_subpoint_lat'][()],
-                     'satellite_longitude': nc['nominal_satellite_subpoint_lon'][()],
-                     'satellite_altitude': nc['nominal_satellite_height'][()]}
+        self.info = {'satellite_latitude': nc['nominal_satellite_subpoint_lat'][0],
+                     'satellite_longitude': nc['nominal_satellite_subpoint_lon'][0],
+                     'satellite_altitude': nc['nominal_satellite_height'][0]}
 
         projection = nc["goes_imager_projection"]
         a = projection.semi_major_axis
@@ -62,8 +66,10 @@ class abi(dict):
 
 
         variable = nc[self.product]
-        self.data = (np.ma.masked_equal(variable, variable._FillValue, copy=False) *
-                     variable.scale_factor + variable.add_offset)
+        if self.product=='Rad':
+            self.data = (np.ma.masked_equal(variable, variable._FillValue, copy=False) * variable.scale_factor + variable.add_offset)
+        else:
+            self.data = np.ma.masked_equal(variable, variable._FillValue, copy=False)
 
 
         scale_x = np.float64(nc['x'].scale_factor)
@@ -76,7 +82,7 @@ class abi(dict):
         y_l = h * (nc['y'][-1] * scale_y + offset_y)
         y_u = h * (nc['y'][0] * scale_y + offset_y)
         x_half = (x_r - x_l) / (self.cols - 1) / 2.
-        y_half = (y_u - y_l) / (self.lines - 1) / 2.
+        y_half = (y_u - y_l) / (self.rows - 1) / 2.
         self.extent = (x_l - x_half, x_r + x_half, y_l - y_half, y_u + y_half)
 
         self.area = {'proj': 'geos',
@@ -86,71 +92,38 @@ class abi(dict):
                      'lon_0': float(lon_0),
                      'h': h,
                      'units': 'm',
-                     'sweep': sweep_axis}
+                     'sweep': sweep_axis,
+                     'no_defs': ''}
 
         if extent is not None:
             self.reproj(extent=extent)
 
+
     def calibrate(self):
 
-        if self.product is 'Rad' and self.band < 7:
+        if self.product=='Rad' and self.band < 7:
             factor = np.pi * self.esd * self.esd / self.solar_irradiance
             self.data *= factor
+            self.product = 'CMI'
 
-        elif self.product is 'Rad':
+        elif self.product=='Rad':
             np.divide(self.fk1, self.data, out=self.data)
             self.data.data[:] += 1
             np.log(self.data, out=self.data)
             np.divide(self.fk2, self.data, out=self.data)
             self.data[:] -= self.bc1
             self.data[:] /= self.bc2
+            self.product = 'CMI'
 
 
     def reproj(self, extent):
         remap(self, extent)
 
-# (-5434546.127484628, -5434241.773362986, 5434546.127484628, 5434241.773362986)
 
-    #dest_crc = {'proj':'longlat', 'ellps': 'WGS84', 'datum': 'WGS84'}
-
-
-    # Compute grid dimension
-
-
-
-
-
-
-
-'''
-    def remap(self, dst_crs = {'proj':'longlat', 'ellps': 'WGS84', 'datum': 'WGS84'}, extent=[-70.0, -40.0, -20.0, 10.0]):
-        with rasterio.Env():
-            KM_PER_DEGREE = 111.32
-
-            resx = (self.extent[2] - self.extent[0]) / self.cols
-            resy = (self.extent[3] - self.extent[1]) / self.lines
-            #west, south, east, north, cols, rows
-            src_transform = transform.from_bounds(self.extent[0], self.extent[1], self.extent[2], self.extent[3], resx, resy)
-            #src_transform = transform.from_bounds(self.extent[0], resx, 0, self.extent[3], 0, -resy)
-            src_crs = self.area
-
-            sizex = int((extent[2] - extent[0]) * KM_PER_DEGREE / self.resolution)
-            sizey = int((extent[3] - extent[1]) * KM_PER_DEGREE / self.resolution)
-            dst_shape = (sizey, sizex)
-            dst_transform = transform.from_bounds(extent[0], extent[1], extent[2], extent[3], sizex, sizey)
-
-            destination = np.zeros(dst_shape, np.float32)
-
-            reproject(
-                self.data,
-                destination,
-                src_transform=src_transform,
-                src_crs=src_crs,
-                dst_transform=dst_transform,
-                dst_crs=dst_crs,
-                #nodata=np.nan,
-                resampling=Resampling.bilinear,
-                num_threads=16)
-
-            self.data = destination
-'''
+    def four_elements_avg(self):
+        data = deepcopy(self)
+        data.__dict__ = self.__dict__.copy()
+        new_shape = (int(data.rows / 2), 2, int(data.cols / 2), 2)
+        data.data = np.ma.mean(data.data.reshape(new_shape), axis=(1, 3))
+        data.rows, data.cols = data.data.shape
+        return data

@@ -15,8 +15,8 @@ regions = {'F': 'Fulldisk',
            'M2': 'Mesoscale 2'}
 
 products = {'Rad': 'ABI-L1b-Rad',
-            'CMIP': 'ABI-L2-CMIPF',
-            'MCMIP': 'ABI-L2-MCMIPF'}
+            'CMIP': 'ABI-L2-CMIP',
+            'MCMIP': 'ABI-L2-MCMIP'}
 
 
 def parse_dates(date1, date2):
@@ -55,12 +55,12 @@ def last_archive(bucket, client, prefix, depth, ftype='file'):
         prefix = list_dir(bucket, client, prefix)['dir'][-1]
     files = list_dir(bucket, client, prefix)[ftype]
     for file in files:
-        datev = datetime.strptime(file['Key'][52:-36], '%Y%j%H%M%S')
+        datev = datetime.strptime(file['Key'][-49:-36], '%Y%j%H%M%S')
         dates.append(time.mktime(datev.timetuple()))
     c_date = max(dates)
     stamp = datetime.fromtimestamp(c_date).strftime('%Y%j%H%M%S')
     for file in files:
-        if file['Key'][52:-36] == stamp:
+        if file['Key'][-49:-36] == stamp:
             rfiles.append(file)
     return rfiles
 
@@ -70,12 +70,12 @@ def closest_date(files, date):
     rfiles = []
     date = time.mktime(date.timetuple())
     for file in files:
-        datev = datetime.strptime(file['Key'][52:-36], '%Y%j%H%M%S')
+        datev = datetime.strptime(file['Key'][-49:-36], '%Y%j%H%M%S')
         dates.append(time.mktime(datev.timetuple()))
     c_date = min(dates, key=lambda x: abs(x-date))
     stamp = datetime.fromtimestamp(c_date).strftime('%Y%j%H%M%S')
     for file in files:
-        if file['Key'][52:-36] == stamp:
+        if file['Key'][-49:-36] == stamp:
             rfiles.append(file)
     return rfiles
 
@@ -88,7 +88,7 @@ def band_filter(files, bands):
             bands = [bands]
     drop = []
     for i, file in enumerate(files):
-        band = int(files[i]['Key'][44:46])
+        band = int(files[i]['Key'][-57:-55])
         if band not in bands:
             drop.append(i)
     for index in sorted(drop, reverse=True):
@@ -99,7 +99,7 @@ def band_filter(files, bands):
 def date_filter(files, start, end):
     drop = []
     for i, file in enumerate(files):
-        date = datetime.strptime(file['Key'][52:-36], '%Y%j%H%M%S')
+        date = datetime.strptime(file['Key'][-49:-36], '%Y%j%H%M%S')
         if date <= start or date >= end:
             drop.append(i)
     for index in sorted(drop, reverse=True):

@@ -8,10 +8,22 @@ import time as t
 def area_string(dict):
     area = ''
     for value in list(dict.keys()):
-        param = '+' + value + '=' + str(dict[value]) + ' '
+        if str(dict[value]) is not '':
+            param = '+' + value + '=' + str(dict[value]) + ' '
+        else:
+            param = '+' + value + ' '
         area += param
-    area += '+no_defs'
-    return area
+    return area[:-1]
+
+def area_dict(string):
+    areadict={}
+    for value in string.split(' '):
+        value = value.split('=')
+        if len(value) > 1:
+            areadict[value[0][1:]] = value[1]
+        else:
+            areadict[value[0][1:]] = ''
+    return areadict
 
 # TODO: Reescrever metadados da nova projeção
 
@@ -25,21 +37,21 @@ KM_PER_DEGREE = 111.32
 # GOES16_EXTENT = [-5434546.127484, 5434546.127484, -5434241.773362, 5434241.773362]
 
 
-def getGeoT(extent, nlines, ncols):
+def getGeoT(extent, nrows, ncols):
     # Compute resolution based on data dimension
     resx = (extent[2] - extent[0]) / ncols
-    resy = (extent[3] - extent[1]) / nlines
+    resy = (extent[3] - extent[1]) / nrows
     return [extent[0], resx, 0, extent[3], 0, -resy]
 
 
-def remap(self, extent):
-
+def remap(self, extent, t_area={'datum': 'WGS84', 'ellps': 'WGS84', 'proj': 'longlat', 'no_defs': ''}):
+    area_dest = area_string(t_area)
     area_def = area_string(self.area)
     sourcePrj = osr.SpatialReference()
     sourcePrj.ImportFromProj4(area_def)
 
     targetPrj = osr.SpatialReference()
-    targetPrj.ImportFromProj4('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
+    targetPrj.ImportFromProj4(area_dest)
 
     raw = gdal_array.OpenArray(self.data)
 
@@ -61,7 +73,7 @@ def remap(self, extent):
     grid.SetProjection(targetPrj.ExportToWkt())
     grid.SetGeoTransform(getGeoT(extent, grid.RasterYSize, grid.RasterXSize))
 
-    gdal.ReprojectImage(raw, grid, sourcePrj.ExportToWkt(), targetPrj.ExportToWkt(), gdal.GRA_NearestNeighbour,
+    gdal.ReprojectImage(raw, grid, sourcePrj.ExportToWkt(), targetPrj.ExportToWkt(), gdal.GRA_Bilinear, #gdal.GRA_NearestNeighbour,
                         options=['NUM_THREADS=ALL_CPUS'])
 
     # Close file
@@ -69,14 +81,15 @@ def remap(self, extent):
 
     # Read grid data
     array = grid.ReadAsArray()
-
-    # Mask fill values (i.e. invalid values)
     np.ma.masked_where(array, array == -1, False)
-
 
     grid.GetRasterBand(1).SetNoDataValue(-1)
     grid.GetRasterBand(1).WriteArray(array)
-
     array = np.ma.masked_equal(grid.ReadAsArray(), array == -1, False)
 
+    c, a, b, f, d, e = grid.GetGeoTransform()
+    self.afine = {'c':c, 'a':a, 'b':b, 'f':f, 'd':d, 'e':e}
+    self.rows, self.cols = array.shape
+    self.extent = extent
+    self.area = t_area
     self.data = array
