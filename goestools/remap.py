@@ -73,8 +73,7 @@ def remap(self, extent, t_area={'datum': 'WGS84', 'ellps': 'WGS84', 'proj': 'lon
     grid.SetProjection(targetPrj.ExportToWkt())
     grid.SetGeoTransform(getGeoT(extent, grid.RasterYSize, grid.RasterXSize))
 
-    gdal.ReprojectImage(raw, grid, sourcePrj.ExportToWkt(), targetPrj.ExportToWkt(), gdal.GRA_Bilinear, #gdal.GRA_NearestNeighbour,
-                        options=['NUM_THREADS=ALL_CPUS'])
+    gdal.ReprojectImage(raw, grid, sourcePrj.ExportToWkt(), targetPrj.ExportToWkt(), gdal.GRA_NearestNeighbour, options=['NUM_THREADS=ALL_CPUS']) #gdal.GRA_Bilinear,
 
     # Close file
     del raw

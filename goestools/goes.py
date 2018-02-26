@@ -56,21 +56,26 @@ class goes():
 
     def rgb_truecolor(self):
         self.calibrate()
-        low_res_red = self.C02.four_elements_avg().data
-        r = self.get_rayleightcorrected('C02', self.C02.data.data)
-        b = self.get_rayleightcorrected('C01', low_res_red)
 
-        c03 = self.C03.data
+        r = self.get_rayleightcorrected('C02', self.C02.data.data)
+        #low_res_red = self.C02.four_elements_avg().data
+        new_shape = (int(r.shape[0] / 2), 2, int(r.shape[1] / 2), 2)
+        low_res_red = r
+        low_res_red = np.ma.mean(low_res_red.reshape(new_shape), axis=(1, 3))
+
+        b = self.get_rayleightcorrected('C01', low_res_red)
+        #c03 = self.get_rayleightcorrected('C03', low_res_red)
+        c03 = self.C03.data.data
         b = np.repeat(np.repeat(b, 2, axis=0), 2, axis=1)
         c03 = np.repeat(np.repeat(c03, 2, axis=0), 2, axis=1)
         g = simulated_green(b, r, c03)
         del c03
 
-        low_res_red = np.repeat(np.repeat(low_res_red, 2, axis=0), 2, axis=1)
-        ratio = r / low_res_red
+        #ratio = r / low_res_red
 
-        g *= ratio
-        b *= ratio
+        #g *= ratio
+        #b *= ratio
+
 
         rgb = np.stack([r, g, b], axis=2)
         rgb = np.maximum(rgb, 0.0)
@@ -109,8 +114,8 @@ class goes():
         ssadiff = np.where(ssadiff > 180, 360 - ssadiff, ssadiff)
         del sata, suna
 
-        corrector = Rayleigh('GOES-16', 'abi', atmosphere='us-standard', aerosol_type='marine_clean_aerosol') #atmosphere=atmosphere, aerosol_type=aerosol_type)
+        corrector = Rayleigh('GOES-16', 'abi')#, atmosphere='us-standard', aerosol_type='marine_clean_aerosol') #atmosphere=atmosphere, aerosol_type=aerosol_type)
         correction = corrector.get_reflectance(sunz, satz, ssadiff, 'ch' + str(self.__dict__[ch].band), r)
         #correction = np.ma.masked_where(np.ma.getmask(self.__dict__[ch].data), correction)
 
-        return self.__dict__[ch].data * (1 - correction/10)
+        return self.__dict__[ch].data - correction/100
