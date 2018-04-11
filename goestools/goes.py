@@ -7,6 +7,7 @@ from copy import deepcopy
 import numpy as np
 from pyorbital.astronomy import get_alt_az, sun_zenith_angle
 from pyorbital.orbital import get_observer_look
+import numba
 
 regions = {'F': 'Fulldisk',
            'C': 'CONUS',
@@ -49,11 +50,13 @@ class goes():
         self.channels = [b for b in list(self.__dict__.keys()) if b in abi_bands.keys()]
 
 
+    @numba.jit(parallel=True)
     def calibrate(self):
         for ch in self.channels:
             getattr(self, ch).calibrate()
 
 
+    @numba.jit(parallel=True)
     def rgb_truecolor(self):
         self.calibrate()
 
@@ -69,18 +72,13 @@ class goes():
         b = np.repeat(np.repeat(b, 2, axis=0), 2, axis=1)
         c03 = np.repeat(np.repeat(c03, 2, axis=0), 2, axis=1)
         g = simulated_green(b, r, c03)
-        del c03
-
-        #ratio = r / low_res_red
-
-        #g *= ratio
-        #b *= ratio
-
+#        c03 = None
 
         rgb = np.stack([r, g, b], axis=2)
+#        r, g, b = None
         rgb = np.maximum(rgb, 0.0)
         rgb = np.minimum(rgb, 1.0)
-        #rgb = np.sqrt(rgb)
+        rgb = np.sqrt(rgb)
 
         self.RGB = deepcopy(self.C01)
         self.RGB.data = rgb
@@ -88,15 +86,14 @@ class goes():
         #del self.RGB.filename, self.RGB.band, self.RGB.wl_range, self.RGB.wl
 
 
+    @numba.jit(parallel=True)
     def get_rayleightcorrected(self, ch, r):
 
         row, col = self.__dict__[ch].data.shape
         cols = np.tile(np.arange(col), (row, 1))
         rows = np.tile(np.arange(row), (col, 1)).transpose()
-        lons = self.__dict__[ch].afine['a'] * cols + self.__dict__[ch].afine['b'] * rows + self.__dict__[ch].afine['a'] * 0.5 + self.__dict__[ch].afine[
-            'b'] * 0.5 + self.__dict__[ch].afine['c']
-        lats = self.__dict__[ch].afine['d'] * cols + self.__dict__[ch].afine['e'] * rows + self.__dict__[ch].afine['d'] * 0.5 + self.__dict__[ch].afine[
-            'e'] * 0.5 + self.C01.afine['f']
+        lons = self.__dict__[ch].afine['a'] * cols + self.__dict__[ch].afine['b'] * rows + self.__dict__[ch].afine['a'] * 0.5 + self.__dict__[ch].afine['b'] * 0.5 + self.__dict__[ch].afine['c']
+        lats = self.__dict__[ch].afine['d'] * cols + self.__dict__[ch].afine['e'] * rows + self.__dict__[ch].afine['d'] * 0.5 + self.__dict__[ch].afine['e'] * 0.5 + self.C01.afine['f']
 
         sunalt, suna = get_alt_az(self.__dict__[ch].start, lons, lats)
         suna = np.rad2deg(suna)
@@ -106,15 +103,13 @@ class goes():
                                         self.__dict__[ch].info['satellite_altitude'],
                                         self.__dict__[ch].start, lons, lats, 0)
         satz = 90 - satel
-        del satel
 
         sata = np.mod(sata, 360.)
         suna = np.mod(suna, 360.)
         ssadiff = np.abs(suna - sata)
         ssadiff = np.where(ssadiff > 180, 360 - ssadiff, ssadiff)
-        del sata, suna
-
-        corrector = Rayleigh('GOES-16', 'abi')#, atmosphere='us-standard', aerosol_type='marine_clean_aerosol') #atmosphere=atmosphere, aerosol_type=aerosol_type)
+        
+        corrector = Rayleigh('GOES-16', 'abi', atmosphere='us-standard', aerosol_type='marine_clean_aerosol') #atmosphere=atmosphere, aerosol_type=aerosol_type)
         correction = corrector.get_reflectance(sunz, satz, ssadiff, 'ch' + str(self.__dict__[ch].band), r)
         #correction = np.ma.masked_where(np.ma.getmask(self.__dict__[ch].data), correction)
 
